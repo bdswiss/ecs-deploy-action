@@ -1,0 +1,53 @@
+name: 'ECS Task Deploy'
+description: 'Deploy service to ecs'
+inputs:
+  app:
+    description: 'ECS Task Definiton name'
+    required: true
+  stage:
+    description: 'Stage to deploy to (staging, production, etc)'
+    required: true
+  role:
+    description: 'web, worker, etc'
+    required: true
+  image:
+    description: 'Image tag to deploy'
+    required: true
+  container:
+    description: 'Named of the container in the task definition'
+    default: 'main'
+  wait-for-service-stability:
+    default: true
+  wait-for-minutes:
+    default: 10
+  image_tag:
+    default: latest
+runs:
+  using: "composite"
+  steps:
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Download task definition
+      run: |
+        aws ecs describe-task-definition --task-definition ${{ inputs.stage }}-${{ inputs.app }}-${{ inputs.role }} \
+        --query taskDefinition > task-definition.json
+
+    - name: Render Amazon ECS task definition
+      id: render-container
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: main
+        image: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.app }}:${{ inputs.image_tag }}
+
+    - name: Deploy to Amazon ECS service
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.render-container.outputs.task-definition }}
+        service: ${{ inputs.stage }}-${{ inputs.app }}-${{ inputs.role }}
+        cluster: ${{ inputs.stage }}
+        force-new-deployment: true
+        wait-for-service-stability: ${{inputs.wait-for-service-stability}}
+        wait-for-minutes: ${{inputs.wait-for-minutes}}
